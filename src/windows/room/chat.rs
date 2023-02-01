@@ -178,43 +178,21 @@ impl ChatState {
                         None => settings.dirs.downloads.clone(),
                     };
 
-                    let source = match &ev.content.msgtype {
-                        MessageType::Audio(c) => {
-                            if filename.is_dir() {
-                                filename.push(c.body.as_str());
-                            }
-
-                            c.source.clone()
-                        },
+                    let (source, msg_filename) = match &ev.content.msgtype {
+                        MessageType::Audio(c) => (c.source.clone(), c.body.as_str()),
                         MessageType::File(c) => {
-                            if filename.is_dir() {
-                                if let Some(name) = &c.filename {
-                                    filename.push(name);
-                                } else {
-                                    filename.push(c.body.as_str());
-                                }
-                            }
-
-                            c.source.clone()
+                            (c.source.clone(), c.filename.as_deref().unwrap_or(c.body.as_str()))
                         },
-                        MessageType::Image(c) => {
-                            if filename.is_dir() {
-                                filename.push(c.body.as_str());
-                            }
-
-                            c.source.clone()
-                        },
-                        MessageType::Video(c) => {
-                            if filename.is_dir() {
-                                filename.push(c.body.as_str());
-                            }
-
-                            c.source.clone()
-                        },
+                        MessageType::Image(c) => (c.source.clone(), c.body.as_str()),
+                        MessageType::Video(c) => (c.source.clone(), c.body.as_str()),
                         _ => {
                             return Err(IambError::NoAttachment.into());
                         },
                     };
+
+                    if filename.is_dir() {
+                        filename.push(format!("{}_{}", ev.event_id.localpart(), msg_filename));
+                    }
 
                     if !filename.exists() || flags.contains(DownloadFlags::FORCE) {
                         let req = MediaRequest { source, format: MediaFormat::File };
