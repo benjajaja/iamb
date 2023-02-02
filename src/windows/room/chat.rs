@@ -435,14 +435,43 @@ impl ChatState {
                 (event_id, msg)
             },
             SendAction::Upload(file) => {
-                let path = Path::new(file.as_str());
-                let mime = mime_guess::from_path(path).first_or(mime::APPLICATION_OCTET_STREAM);
+                let (bytes, name, mime) = match &file {
+                    Some(file) => {
+                        let path = Path::new(file.as_str());
+                        let mime =
+                            mime_guess::from_path(path).first_or(mime::APPLICATION_OCTET_STREAM);
 
-                let bytes = fs::read(path)?;
-                let name = path
-                    .file_name()
-                    .map(OsStr::to_string_lossy)
-                    .unwrap_or_else(|| Cow::from("Attachment"));
+                        let bytes = fs::read(path)?;
+                        let name = path
+                            .file_name()
+                            .map(OsStr::to_string_lossy)
+                            .unwrap_or_else(|| Cow::from("Attachment"));
+                        (bytes, name, mime)
+                    },
+                    None => {
+                        let bytes = arboard::Clipboard::new()
+                            .and_then(|mut clipboard| clipboard.get_image())
+                            .and_then(|image| {
+                                image::ImageBuffer::from_raw(
+                                    image.width as _,
+                                    image.height as _,
+                                    image.bytes.into_owned(),
+                                )
+                                .ok_or(arboard::Error::ConversionFailure)
+                            })
+                            .map_err(IambError::from)
+                            .and_then(|imagebuf| {
+                                let dynimage = image::DynamicImage::ImageRgba8(imagebuf);
+                                let bytes = Vec::<u8>::new();
+                                let mut buff = std::io::Cursor::new(bytes);
+                                dynimage
+                                    .write_to(&mut buff, image::ImageOutputFormat::Png)
+                                    .map_err(IambError::from)?;
+                                Ok(buff.into_inner())
+                            })?;
+                        (bytes, Cow::from("Clipboard.png"), mime::IMAGE_PNG)
+                    },
+                };
                 let config = AttachmentConfig::new();
 
                 let resp = room
