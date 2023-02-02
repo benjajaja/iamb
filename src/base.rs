@@ -127,7 +127,7 @@ pub enum RoomAction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SendAction {
     Submit,
-    Upload(String),
+    Upload(Option<String>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -253,6 +253,12 @@ pub enum IambError {
 
     #[error("Selected message does not have any attachments")]
     NoAttachment,
+
+    #[error("Clipboard error: {0}")]
+    Clipboard(#[from] arboard::Error),
+
+    #[error("Image error: {0}")]
+    Image(#[from] image::ImageError),
 
     #[error("No message currently selected")]
     NoSelectedMessage,
