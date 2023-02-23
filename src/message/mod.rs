@@ -58,8 +58,12 @@ use crate::{
     util::{space_span, wrapped_text},
 };
 
+use self::sixel::Sixel;
+
 mod html;
 mod printer;
+#[cfg(feature = "sixel")]
+pub mod sixel;
 
 pub type MessageFetchResult = IambResult<(Option<String>, Vec<AnyMessageLikeEvent>)>;
 pub type MessageKey = (MessageTimeStamp, OwnedEventId);
@@ -585,6 +589,7 @@ pub struct Message {
     pub timestamp: MessageTimeStamp,
     pub downloaded: bool,
     pub html: Option<StyleTree>,
+    pub image: Sixel,
 }
 
 impl Message {
@@ -592,7 +597,8 @@ impl Message {
         let html = event.html();
         let downloaded = false;
 
-        Message { event, sender, timestamp, downloaded, html }
+        let image = (&event).into();
+        Message { event, sender, timestamp, downloaded, html, image }
     }
 
     pub fn reply_to(&self) -> Option<OwnedEventId> {
@@ -698,7 +704,10 @@ impl Message {
 
         if let Some(r) = &reply {
             let w = width.saturating_sub(2);
-            let mut replied = r.show_msg(w, style, true);
+
+            let image_preview_line_count = settings.tunables.image_preview.line_count;
+
+            let mut replied = r.show_msg(w, style, true, image_preview_line_count);
             let mut sender = r.sender_span(settings);
             let sender_width = UnicodeWidthStr::width(sender.content.as_ref());
             let trailing = w.saturating_sub(sender_width + 1);
@@ -725,8 +734,10 @@ impl Message {
             fmt.push_text(replied, style, &mut text);
         }
 
+        let image_preview_line_count = settings.tunables.image_preview.line_count;
+
         // Now show the message contents, and the inlined reply if we couldn't find it above.
-        let msg = self.show_msg(width, style, reply.is_some());
+        let msg = self.show_msg(width, style, reply.is_some(), image_preview_line_count);
         fmt.push_text(msg, style, &mut text);
 
         if text.lines.is_empty() {
@@ -778,14 +789,34 @@ impl Message {
         return text;
     }
 
-    pub fn show_msg(&self, width: usize, style: Style, hide_reply: bool) -> Text {
+    pub fn show_msg(
+        &self,
+        width: usize,
+        style: Style,
+        hide_reply: bool,
+        _image_preview_line_count: u16,
+    ) -> Text {
         if let Some(html) = &self.html {
             html.to_text(width, style, hide_reply)
         } else {
             let mut msg = self.event.body();
 
-            if self.downloaded {
-                msg.to_mut().push_str(" \u{2705}");
+            match &self.image {
+                Sixel::None => {
+                    if self.downloaded {
+                        msg.to_mut().push_str(" \u{2705}");
+                    }
+                },
+                Sixel::Pending(_, _) => {
+                    msg.to_mut().push_str(" pending \u{1F4BF}");
+                },
+                Sixel::Downloading => {
+                    msg.to_mut().push_str(" downloading \u{1F636}");
+                },
+                Sixel::Loaded(_, height) => {
+                    msg.to_mut().push_str(" \u{2705}\u{2705}");
+                    msg.to_mut().insert_str(0, "\n".repeat(*height as _).as_str());
+                },
             }
 
             wrapped_text(msg, width, style)

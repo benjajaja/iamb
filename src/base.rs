@@ -360,11 +360,29 @@ pub enum IambError {
 
     #[error("Verification request error: {0}")]
     VerificationRequestError(#[from] matrix_sdk::encryption::identities::RequestVerificationError),
+
+    #[cfg(feature = "sixel")]
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+
+    #[cfg(feature = "sixel")]
+    #[error("Sixel error: {0}")]
+    SixelError(String),
+
+    #[error("Image error: {0}")]
+    Image(#[from] image::ImageError),
 }
 
 impl From<IambError> for UIError<IambInfo> {
     fn from(err: IambError) -> Self {
         UIError::Application(err)
+    }
+}
+
+#[cfg(feature = "sixel")]
+impl From<sixel_rs::status::Error> for IambError {
+    fn from(err: sixel_rs::status::Error) -> IambError {
+        IambError::SixelError(format!("{err:?}"))
     }
 }
 
@@ -454,6 +472,10 @@ impl RoomInfo {
 
     pub fn get_event(&self, event_id: &EventId) -> Option<&Message> {
         self.messages.get(self.get_message_key(event_id)?)
+    }
+
+    pub fn get_event_mut(&mut self, event_id: &EventId) -> Option<&mut Message> {
+        self.messages.get_mut(self.keys.get(event_id)?.to_message_key()?)
     }
 
     pub fn insert_reaction(&mut self, react: ReactionEvent) {

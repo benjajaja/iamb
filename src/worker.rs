@@ -69,6 +69,10 @@ use matrix_sdk::{
 
 use modalkit::editing::action::{EditInfo, InfoMessage, UIError};
 
+#[cfg(feature = "sixel")]
+use crate::message::sixel;
+
+use crate::message::sixel::Sixel;
 use crate::{
     base::{
         AsyncProgramStore,
@@ -224,9 +228,10 @@ async fn load_older_one(
 
 async fn load_insert(room_id: OwnedRoomId, res: MessageFetchResult, store: AsyncProgramStore) {
     let mut locked = store.lock().await;
-    let ChatStore { need_load, presences, rooms, .. } = &mut locked.application;
+    let ChatStore { need_load, presences, rooms, settings, worker, .. } = &mut locked.application;
     let info = rooms.get_or_default(room_id.clone());
     info.fetching = false;
+    let client = &worker.client;
 
     match res {
         Ok((fetch_id, msgs)) => {
@@ -239,7 +244,28 @@ async fn load_insert(room_id: OwnedRoomId, res: MessageFetchResult, store: Async
                         info.insert_encrypted(msg);
                     },
                     AnyMessageLikeEvent::RoomMessage(msg) => {
+                        let source = sixel::get_attachment_source2(&msg);
                         info.insert(msg);
+                        if let Some((source, event_id)) = source {
+                            let response = sixel::load_or_download_image(
+                                &client.media(),
+                                &settings,
+                                source,
+                                event_id.clone(),
+                            )
+                            .await;
+                            match response {
+                                Ok(image_data) => {
+                                    if let Some(msg) = info.get_event_mut(&event_id) {
+                                        msg.image = Sixel::Loaded(
+                                            image_data,
+                                            settings.tunables.image_preview.line_count,
+                                        );
+                                    }
+                                },
+                                Err(err) => eprintln!("sixel download error: {err}"),
+                            }
+                        }
                     },
                     AnyMessageLikeEvent::Reaction(ev) => {
                         info.insert_reaction(ev);
@@ -574,11 +600,13 @@ impl ClientWorker {
             sync_handle: None,
         };
 
+        let requester = Requester { client, tx };
+
         tokio::spawn(async move {
             worker.work(rx).await;
         });
 
-        return Requester { client, tx };
+        requester
     }
 
     async fn work(&mut self, mut rx: UnboundedReceiver<WorkerTask>) {
@@ -715,6 +743,8 @@ impl ClientWorker {
              store: Ctx<AsyncProgramStore>| {
                 async move {
                     let room_id = room.room_id();
+                    let room_name =
+                        room.display_name().await.ok().as_ref().map(ToString::to_string);
 
                     if let Some(msg) = ev.as_original() {
                         if let MessageType::VerificationRequest(_) = msg.content.msgtype {
@@ -733,8 +763,42 @@ impl ClientWorker {
                     let sender = ev.sender().to_owned();
                     let _ = locked.application.presences.get_or_default(sender);
 
-                    let info = locked.application.get_room_info(room_id.to_owned());
-                    info.insert(ev.into_full_event(room_id.to_owned()));
+                    let media = &locked.application.worker.client.media().clone();
+                    let settings = &locked.application.settings.clone();
+                    let mut info = locked.application.get_room_info(room_id.to_owned());
+
+                    info.name = room_name.clone();
+                    let full_ev = ev.clone().into_full_event(room_id.to_owned());
+
+                    info.insert(full_ev);
+
+                    if let Some((source, event_id)) = sixel::get_attachment_source(&ev) {
+                        eprintln!("SyncMessageLikeEvent {event_id}");
+                        let response = sixel::load_or_download_image(
+                            &media,
+                            &settings,
+                            source,
+                            event_id.clone(),
+                        )
+                        .await;
+
+                        match response {
+                            Ok(image_data) => {
+                                eprintln!("SyncMessageLikeEvent re-lock {event_id}");
+                                // Acquire lock again to avoid blocking in await (I think).
+                                // let mut locked = store.lock().await;
+                                // let info = locked.application.get_room_info(room_id.to_owned());
+                                if let Some(msg) = info.get_event_mut(&event_id) {
+                                    eprintln!("insert image into msg {event_id}");
+                                    msg.image = Sixel::Loaded(
+                                        image_data,
+                                        settings.tunables.image_preview.line_count,
+                                    );
+                                }
+                            },
+                            Err(err) => eprintln!("sixel download error: {err}"),
+                        }
+                    };
                 }
             },
         );
