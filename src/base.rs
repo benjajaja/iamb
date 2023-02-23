@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use emojis::Emoji;
+use ratatui_image::picker::Picker;
 use serde::{
     de::Error as SerdeError,
     de::Visitor,
@@ -81,6 +82,8 @@ use modalkit::{
     },
 };
 
+use crate::message::ImageBackend;
+use crate::preview::{spawn_insert_preview, source_from_event};
 use crate::{
     message::{Message, MessageEvent, MessageKey, MessageTimeStamp, Messages},
     worker::Requester,
@@ -490,6 +493,12 @@ pub enum IambError {
     /// A failure to access the system's clipboard.
     #[error("Could not use system clipboard data")]
     Clipboard,
+
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+
+    #[error("Preview error: {0}")]
+    Preview(String),
 }
 
 impl From<IambError> for UIError<IambInfo> {
@@ -603,6 +612,10 @@ impl RoomInfo {
         self.messages.get(self.get_message_key(event_id)?)
     }
 
+    pub fn get_event_mut(&mut self, event_id: &EventId) -> Option<&mut Message> {
+        self.messages.get_mut(self.keys.get(event_id)?.to_message_key()?)
+    }
+
     /// Insert a reaction to a message.
     pub fn insert_reaction(&mut self, react: ReactionEvent) {
         match react {
@@ -690,6 +703,29 @@ impl RoomInfo {
                 ..
             }) => self.insert_edit(repl),
             _ => self.insert_message(msg),
+        }
+    }
+
+    pub fn insert_with_preview(&mut self, room_id: OwnedRoomId, store: AsyncProgramStore, picker: Option<Picker>, ev: matrix_sdk::ruma::events::MessageLikeEvent<RoomMessageEventContent>, settings: &mut ApplicationSettings, media: matrix_sdk::Media) {
+        let source = picker.and_then(|_| source_from_event(&ev));
+        self.insert(ev);
+
+        if let Some((event_id, source)) = source {
+            if let (Some(msg), Some(image_preview)) = (
+                self.get_event_mut(&event_id),
+                &settings.tunables.image_preview,
+            ) {
+                msg.image_backend =
+                    ImageBackend::Downloading(image_preview.size.clone());
+                spawn_insert_preview(
+                    store,
+                    room_id,
+                    event_id,
+                    source,
+                    media,
+                    settings.dirs.image_previews.clone(),
+                )
+            }
         }
     }
 
@@ -825,6 +861,7 @@ pub struct ChatStore {
 
     /// Information gathered by the background thread.
     pub sync_info: SyncInfo,
+    pub picker: Option<Picker>,
 }
 
 impl ChatStore {
@@ -833,7 +870,7 @@ impl ChatStore {
         ChatStore {
             worker,
             settings,
-
+            picker: None,
             cmds: crate::commands::setup_commands(),
             emojis: emoji_map(),
 

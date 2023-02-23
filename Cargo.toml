@@ -74,3 +74,9 @@ pretty_assertions = "1.4.0"
 [profile.release]
 lto = true
 incremental = false
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ratatui-image = { version = "0.3.2", features = ["serde"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ratatui-image = { version = "0.3.2", features = ["serde", "sixel", "rustix"] }

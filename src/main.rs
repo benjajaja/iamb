@@ -27,6 +27,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use config::ImagePreviewProtocolValues;
+use ratatui_image::picker::Picker;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing_subscriber::FmtSubscriber;
 
@@ -68,6 +70,7 @@ mod commands;
 mod config;
 mod keybindings;
 mod message;
+mod preview;
 mod util;
 mod windows;
 mod worker;
@@ -264,9 +267,35 @@ impl Application {
         let bindings = KeyManager::new(bindings);
 
         let mut locked = store.lock().await;
+
+        #[allow(unused_variables)]
+        if let Some(image_preview) = settings.tunables.image_preview.as_ref() {
+            let picker = match image_preview.protocol.as_ref() {
+                Some(&ImagePreviewProtocolValues {
+                    r#type: Some(backend),
+                    font_size: Some(font_size),
+                }) => Some(Picker::new(font_size, backend, None).unwrap()),
+                #[cfg(not(target_os = "windows"))]
+                Some(&ImagePreviewProtocolValues {
+                    r#type: Some(backend),
+                    font_size: None,
+                }) => {
+                    let mut picker = Picker::from_termios(None).unwrap();
+                    picker.set(backend);
+                    Some(picker)
+                },
+                #[cfg(not(target_os = "windows"))]
+                _ => Some(Picker::from_termios(None).unwrap()),
+                #[cfg(target_os = "windows")]
+                _ => None,
+            };
+            locked.application.picker = picker;
+        }
+
         let screen = setup_screen(settings, locked.deref_mut())?;
 
         let worker = locked.application.worker.clone();
+
         drop(locked);
 
         let actstack = VecDeque::new();

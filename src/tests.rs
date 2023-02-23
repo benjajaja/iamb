@@ -170,6 +170,7 @@ pub fn mock_dirs() -> DirectoryValues {
         cache: PathBuf::new(),
         logs: PathBuf::new(),
         downloads: None,
+        image_previews: None,
     }
 }
 
@@ -192,6 +193,7 @@ pub fn mock_tunables() -> TunableValues {
         .collect::<HashMap<_, _>>(),
         open_command: None,
         username_display: UserDisplayStyle::Username,
+        image_preview: None,
     }
 }
 

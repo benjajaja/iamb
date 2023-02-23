@@ -51,7 +51,9 @@ use modalkit::tui::{
 };
 
 use modalkit::editing::{base::ViewportContext, cursor::Cursor};
+use ratatui_image::protocol::Protocol;
 
+use crate::config::ImagePreviewSize;
 use crate::{
     base::{IambResult, RoomInfo},
     config::ApplicationSettings,
@@ -584,12 +586,21 @@ impl<'a> MessageFormatter<'a> {
     }
 }
 
+pub enum ImageBackend {
+    None,
+    Downloading(ImagePreviewSize),
+    Preparing(ImagePreviewSize),
+    Loaded(Box<dyn Protocol>),
+    Error(String),
+}
+
 pub struct Message {
     pub event: MessageEvent,
     pub sender: OwnedUserId,
     pub timestamp: MessageTimeStamp,
     pub downloaded: bool,
     pub html: Option<StyleTree>,
+    pub image_backend: ImageBackend,
 }
 
 impl Message {
@@ -597,7 +608,14 @@ impl Message {
         let html = event.html();
         let downloaded = false;
 
-        Message { event, sender, timestamp, downloaded, html }
+        Message {
+            event,
+            sender,
+            timestamp,
+            downloaded,
+            html,
+            image_backend: ImageBackend::None,
+        }
     }
 
     pub fn reply_to(&self) -> Option<OwnedEventId> {
@@ -681,6 +699,35 @@ impl Message {
 
             MessageFormatter { settings, cols, orig, fill, user, date, time, read }
         }
+    }
+
+    pub fn line_preview<'a>(
+        &'a self,
+        prev: Option<&Message>,
+        vwctx: &ViewportContext<MessageCursor>,
+        info: &'a RoomInfo,
+    ) -> Option<(&dyn Protocol, u16, u16)> {
+            let width = vwctx.get_width();
+            // The x position where get_render_format would render the text.
+            let x = (if USER_GUTTER + MIN_MSG_LEN <= width {
+                USER_GUTTER
+            } else {
+                0
+            } + 1) as u16;
+            // See get_render_format; account for possible "date" line.
+            let date_y = match &prev {
+                Some(prev) if !prev.timestamp.same_day(&self.timestamp) => 1,
+                _ => 0,
+            };
+        if let ImageBackend::Loaded(backend) = &self.image_backend {
+            return Some((backend.as_ref(), x, date_y));
+        } else if let Some(reply) = self.reply_to().and_then(|e| info.get_event(&e)) {
+            if let ImageBackend::Loaded(backend) = &reply.image_backend {
+                // The reply should be offset a bit:
+                return Some((backend.as_ref(), x + 2, date_y + 1));
+            }
+        }
+        None
     }
 
     pub fn show<'a>(
@@ -793,6 +840,22 @@ impl Message {
                 msg.to_mut().push_str(" \u{2705}");
             }
 
+            if let Some(placeholder) = match &self.image_backend {
+                ImageBackend::None => None,
+                ImageBackend::Downloading(image_preview_size) => {
+                    Some(Message::placeholder_frame(Some("Downloading..."), image_preview_size))
+                },
+                ImageBackend::Preparing(image_preview_size) => {
+                    Some(Message::placeholder_frame(Some("Preparing..."), image_preview_size))
+                },
+                ImageBackend::Loaded(backend) => {
+                    Some(Message::placeholder_frame(None, &backend.rect().into()))
+                },
+                ImageBackend::Error(err) => Some(format!("[Image error: {err}]")),
+            } {
+                msg.to_mut().insert_str(0, &placeholder);
+            }
+
             wrapped_text(msg, width, style)
         }
     }
@@ -803,6 +866,23 @@ impl Message {
         settings: &'a ApplicationSettings,
     ) -> Span<'a> {
         settings.get_user_span(self.sender.as_ref(), info)
+    }
+
+    fn placeholder_frame(text: Option<&str>, image_preview_size: &ImagePreviewSize) -> String {
+        let ImagePreviewSize { width, height } = image_preview_size;
+        let mut placeholder = "\u{230c}".to_string();
+        placeholder.push_str(&" ".repeat(width - 2));
+        placeholder.push_str("\u{230d}\n");
+        placeholder.push(' ');
+        if let Some(text) = text {
+            placeholder.push_str(text);
+        }
+
+        placeholder.push_str(&"\n".repeat(height - 2));
+        placeholder.push('\u{230e}');
+        placeholder.push_str(&" ".repeat(width - 2));
+        placeholder.push_str("\u{230f}\n");
+        placeholder
     }
 
     fn show_sender<'a>(
