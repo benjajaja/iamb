@@ -54,8 +54,9 @@ url = {version = "^2.2.2", features = ["serde"]}
 
 [dependencies.modalkit]
 # version = "0.0.16"
-git = "https://github.com/benjajaja/modalkit"
-rev = "3a7adcf353506740d22c238d0afa8891a1d03884"
+# git = "https://github.com/benjajaja/modalkit"
+# rev = "3a7adcf353506740d22c238d0afa8891a1d03884"
+path = "../modalkit"
 
 [dependencies.matrix-sdk]
 version = "0.6"
@@ -66,6 +67,13 @@ features = ["e2e-encryption", "sled", "rustls-tls"]
 version = "1.24.1"
 features = ["macros", "net", "rt-multi-thread", "sync", "time"]
 
+[dependencies.ratatu-image]
+# git = "https://github.com/benjajaja/ratatu-image"
+# rev = "1d2ed16b2272a7250bfa3696cb492c31c4c2787a"
+path = "../ratatu-image"
+optional = true
+features = ["serde"]
+
 [dev-dependencies]
 lazy_static = "1.4.0"
 pretty_assertions = "1.4.0"
@@ -73,3 +81,7 @@ pretty_assertions = "1.4.0"
 [profile.release]
 lto = true
 incremental = false
+
+[features]
+default = ["sixel"]
+sixel = ["ratatu-image"]

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use emojis::Emoji;
+use ratatu_image::picker::Picker;
 use serde::{
     de::Error as SerdeError,
     de::Visitor,
@@ -78,6 +79,7 @@ use modalkit::{
     },
 };
 
+use crate::config::ImagePreviewSize;
 use crate::{
     message::{Message, MessageEvent, MessageKey, MessageTimeStamp, Messages},
     worker::Requester,
@@ -383,6 +385,12 @@ pub enum IambError {
 
     #[error("Could not use system clipboard data")]
     Clipboard,
+
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+
+    #[error("Preview error: {0}")]
+    Preview(String),
 }
 
 impl From<IambError> for UIError<IambInfo> {
@@ -480,6 +488,10 @@ impl RoomInfo {
 
     pub fn get_event(&self, event_id: &EventId) -> Option<&Message> {
         self.messages.get(self.get_message_key(event_id)?)
+    }
+
+    pub fn get_event_mut(&mut self, event_id: &EventId) -> Option<&mut Message> {
+        self.messages.get_mut(self.keys.get(event_id)?.to_message_key()?)
     }
 
     pub fn insert_reaction(&mut self, react: ReactionEvent) {
@@ -670,6 +682,7 @@ pub struct ChatStore {
     pub need_load: HashSet<OwnedRoomId>,
     pub emojis: CompletionMap<String, &'static Emoji>,
     pub sync_info: SyncInfo,
+    pub picker: Option<Picker<ImagePreviewSize>>,
 }
 
 impl ChatStore {
@@ -677,7 +690,7 @@ impl ChatStore {
         ChatStore {
             worker,
             settings,
-
+            picker: None,
             cmds: crate::commands::setup_commands(),
             emojis: emoji_map(),
 

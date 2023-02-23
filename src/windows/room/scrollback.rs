@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use ratatu_image::FixedImage;
 use regex::Regex;
 
 use matrix_sdk::ruma::OwnedRoomId;
@@ -1263,6 +1264,7 @@ impl<'a> StatefulWidget for Scrollback<'a> {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let info = self.store.application.rooms.get_or_default(state.room_id.clone());
         let settings = &self.store.application.settings;
+        let picker = &self.store.application.picker;
         let area = if state.cursor.timestamp.is_some() {
             render_jump_to_recent(area, buf, self.focused)
         } else {
@@ -1306,7 +1308,11 @@ impl<'a> StatefulWidget for Scrollback<'a> {
             let sel = key == cursor_key;
             let txt = item.show(prev, foc && sel, &state.viewctx, info, settings);
 
-            prev = Some(item);
+            let mut msg_preview = if picker.is_some() {
+                item.line_preview(prev, &state.viewctx)
+            } else {
+                None
+            };
 
             let incomplete_ok = !full || !sel;
 
@@ -1322,9 +1328,17 @@ impl<'a> StatefulWidget for Scrollback<'a> {
                     continue;
                 }
 
-                lines.push((key, row, line));
+                let line_preview = match msg_preview {
+                    // Only take the preview into the matching row number.
+                    Some((_, _, y)) if y as usize == row => msg_preview.take(),
+                    _ => None,
+                };
+
+                lines.push((key, row, line, line_preview));
                 sawit |= sel;
             }
+
+            prev = Some(item);
         }
 
         if lines.len() > height {
@@ -1332,7 +1346,7 @@ impl<'a> StatefulWidget for Scrollback<'a> {
             let _ = lines.drain(..n);
         }
 
-        if let Some(((ts, event_id), row, _)) = lines.first() {
+        if let Some(((ts, event_id), row, _, _)) = lines.first() {
             state.viewctx.corner.timestamp = Some((*ts, event_id.clone()));
             state.viewctx.corner.text_row = *row;
         }
@@ -1340,8 +1354,18 @@ impl<'a> StatefulWidget for Scrollback<'a> {
         let mut y = area.top();
         let x = area.left();
 
-        for (_, _, txt) in lines.into_iter() {
+        for ((_, _), _, txt, line_preview) in lines.into_iter() {
             let _ = buf.set_line(x, y, &txt, area.width);
+            if let Some((backend, msg_x, _)) = line_preview {
+                let image_widget = FixedImage::new(backend.as_ref());
+                let mut rect = backend.rect();
+                rect.x = msg_x;
+                rect.y = y;
+                // Don't render partial images: avoids overwrites or extra CRs.
+                if rect.y + rect.height < area.height {
+                    image_widget.render(rect, buf);
+                }
+            }
 
             y += 1;
         }

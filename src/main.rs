@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use ratatu_image::picker::Picker;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing_subscriber::FmtSubscriber;
 
@@ -55,6 +56,7 @@ mod commands;
 mod config;
 mod keybindings;
 mod message;
+mod preview;
 mod util;
 mod windows;
 mod worker;
@@ -241,15 +243,28 @@ impl Application {
         crossterm::execute!(stdout, SetTitle(title))?;
 
         let backend = CrosstermBackend::new(stdout);
-        let terminal = Terminal::new(backend)?;
+        let mut terminal = Terminal::new(backend)?;
 
         let bindings = crate::keybindings::setup_keybindings();
         let bindings = KeyManager::new(bindings);
 
         let mut locked = store.lock().await;
+
+        if let Some(image_preview_settings) = &settings.tunables.image_preview {
+            let picker = Picker::new(
+                &mut terminal,
+                None,
+                image_preview_settings.backend,
+                image_preview_settings.size.clone(),
+            )
+            .unwrap();
+            locked.application.picker = Some(picker);
+        }
+
         let screen = setup_screen(settings, locked.deref_mut())?;
 
         let worker = locked.application.worker.clone();
+
         drop(locked);
 
         let actstack = VecDeque::new();

@@ -29,11 +29,12 @@
         };
         devShell = mkShell {
           buildInputs = [
-            (rustNightly.override { extensions = [ "rust-src" ]; })
+            (rustNightly.override {
+              extensions = [ "rust-src" "rust-analyzer-preview" "rustfmt" "clippy" ]; 
+            })
             pkg-config
             cargo-tarpaulin
-            rust-analyzer
-            rustfmt
+            cargo-watch
           ];
         };
       });

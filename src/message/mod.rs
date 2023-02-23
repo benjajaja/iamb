@@ -50,7 +50,9 @@ use modalkit::tui::{
 };
 
 use modalkit::editing::{base::ViewportContext, cursor::Cursor};
+use ratatu_image::backend::FixedBackend;
 
+use crate::config::ImagePreviewSize;
 use crate::{
     base::{IambResult, RoomInfo},
     config::ApplicationSettings,
@@ -580,12 +582,21 @@ impl<'a> MessageFormatter<'a> {
     }
 }
 
+pub enum ImageBackend {
+    None,
+    Downloading(ImagePreviewSize),
+    Preparing(ImagePreviewSize),
+    Loaded(Box<dyn FixedBackend>),
+    Error(String),
+}
+
 pub struct Message {
     pub event: MessageEvent,
     pub sender: OwnedUserId,
     pub timestamp: MessageTimeStamp,
     pub downloaded: bool,
     pub html: Option<StyleTree>,
+    pub image_backend: ImageBackend,
 }
 
 impl Message {
@@ -593,7 +604,14 @@ impl Message {
         let html = event.html();
         let downloaded = false;
 
-        Message { event, sender, timestamp, downloaded, html }
+        Message {
+            event,
+            sender,
+            timestamp,
+            downloaded,
+            html,
+            image_backend: ImageBackend::None,
+        }
     }
 
     pub fn reply_to(&self) -> Option<OwnedEventId> {
@@ -677,6 +695,29 @@ impl Message {
 
             MessageFormatter { settings, cols, orig, fill, user, date, time, read }
         }
+    }
+
+    pub fn line_preview(
+        &self,
+        prev: Option<&Message>,
+        vwctx: &ViewportContext<MessageCursor>,
+    ) -> Option<(&Box<dyn FixedBackend>, u16, u16)> {
+        if let ImageBackend::Loaded(backend) = &self.image_backend {
+            let width = vwctx.get_width();
+            // The x position where get_render_format would render the text.
+            let x = (if USER_GUTTER + MIN_MSG_LEN <= width {
+                USER_GUTTER
+            } else {
+                0
+            } + 1) as u16;
+            // See get_render_format; account for possible "date" line.
+            let date_y = match &prev {
+                Some(prev) if !prev.timestamp.same_day(&self.timestamp) => 1,
+                _ => 0,
+            };
+            return Some((backend, x, date_y));
+        }
+        None
     }
 
     pub fn show<'a>(
@@ -789,6 +830,22 @@ impl Message {
                 msg.to_mut().push_str(" \u{2705}");
             }
 
+            if let Some(placeholder) = match &self.image_backend {
+                ImageBackend::None => None,
+                ImageBackend::Downloading(image_preview_size) => {
+                    Some(Message::placeholder_frame("Downloading...", image_preview_size))
+                },
+                ImageBackend::Preparing(image_preview_size) => {
+                    Some(Message::placeholder_frame("Preparing...", image_preview_size))
+                },
+                ImageBackend::Loaded(backend) => {
+                    Some(Message::placeholder_frame("Image", &backend.rect().into()))
+                },
+                ImageBackend::Error(err) => Some(format!("[Image error: {err}]")),
+            } {
+                msg.to_mut().insert_str(0, &placeholder);
+            }
+
             wrapped_text(msg, width, style)
         }
     }
@@ -799,6 +856,21 @@ impl Message {
         settings: &'a ApplicationSettings,
     ) -> Span<'a> {
         settings.get_user_span(self.sender.as_ref(), info)
+    }
+
+    fn placeholder_frame(text: &str, image_preview_size: &ImagePreviewSize) -> String {
+        let ImagePreviewSize { width, height } = image_preview_size;
+        let mut placeholder = "\u{230c}".to_string();
+        placeholder.push_str(&" ".repeat(width - 2));
+        placeholder.push_str("\u{230d}\n");
+        placeholder.push_str(" ");
+        placeholder.push_str(text);
+
+        placeholder.push_str(&"\n".repeat(height - 2));
+        placeholder.push_str("\u{230e}");
+        placeholder.push_str(&" ".repeat(width - 2));
+        placeholder.push_str("\u{230f}\n");
+        placeholder
     }
 
     fn show_sender<'a>(

@@ -10,6 +10,7 @@ use std::process;
 
 use clap::Parser;
 use matrix_sdk::ruma::{OwnedRoomAliasId, OwnedRoomId, OwnedUserId, UserId};
+use ratatu_image::picker::BackendType;
 use serde::{de::Error as SerdeError, de::Visitor, Deserialize, Deserializer};
 use tracing::Level;
 use url::Url;
@@ -245,6 +246,26 @@ pub enum UserDisplayStyle {
     DisplayName,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct ImagePreviewValues {
+    pub backend: BackendType,
+    pub size: ImagePreviewSize,
+}
+impl Default for ImagePreviewValues {
+    fn default() -> Self {
+        ImagePreviewValues {
+            backend: BackendType::Halfblocks,
+            size: ImagePreviewSize { width: 66, height: 10 },
+        }
+    }
+}
+
+#[derive(Clone, Deserialize)]
+pub struct ImagePreviewSize {
+    pub width: usize,
+    pub height: usize,
+}
+
 #[derive(Clone)]
 pub struct TunableValues {
     pub log_level: Level,
@@ -259,6 +280,7 @@ pub struct TunableValues {
     pub username_display: UserDisplayStyle,
     pub default_room: Option<String>,
     pub open_command: Option<Vec<String>>,
+    pub image_preview: Option<ImagePreviewValues>,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -275,6 +297,7 @@ pub struct Tunables {
     pub username_display: Option<UserDisplayStyle>,
     pub default_room: Option<String>,
     pub open_command: Option<Vec<String>>,
+    pub image_preview: Option<ImagePreviewValues>,
 }
 
 impl Tunables {
@@ -294,6 +317,7 @@ impl Tunables {
             username_display: self.username_display.or(other.username_display),
             default_room: self.default_room.or(other.default_room),
             open_command: self.open_command.or(other.open_command),
+            image_preview: self.image_preview.or(other.image_preview),
         }
     }
 
@@ -311,6 +335,7 @@ impl Tunables {
             username_display: self.username_display.unwrap_or_default(),
             default_room: self.default_room,
             open_command: self.open_command,
+            image_preview: self.image_preview,
         }
     }
 }

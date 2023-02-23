@@ -192,6 +192,7 @@ pub fn mock_tunables() -> TunableValues {
         .collect::<HashMap<_, _>>(),
         open_command: None,
         username_display: UserDisplayStyle::Username,
+        image_preview: None,
     }
 }
 

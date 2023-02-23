@@ -71,6 +71,8 @@ use matrix_sdk::{
 
 use modalkit::editing::action::{EditInfo, InfoMessage, UIError};
 
+use crate::message::ImageBackend;
+use crate::preview::{spawn_insert_preview, PreviewSource};
 use crate::{
     base::{
         AsyncProgramStore,
@@ -226,9 +228,18 @@ async fn load_older_one(
 
 async fn load_insert(room_id: OwnedRoomId, res: MessageFetchResult, store: AsyncProgramStore) {
     let mut locked = store.lock().await;
-    let ChatStore { need_load, presences, rooms, .. } = &mut locked.application;
+    let ChatStore {
+        need_load,
+        presences,
+        rooms,
+        worker,
+        picker,
+        settings,
+        ..
+    } = &mut locked.application;
     let info = rooms.get_or_default(room_id.clone());
     info.fetching = false;
+    let client = &worker.client;
 
     match res {
         Ok((fetch_id, msgs)) => {
@@ -241,7 +252,25 @@ async fn load_insert(room_id: OwnedRoomId, res: MessageFetchResult, store: Async
                         info.insert_encrypted(msg);
                     },
                     AnyMessageLikeEvent::RoomMessage(msg) => {
-                        info.insert(msg);
+                        if let Some(picker) = picker {
+                            let source = PreviewSource::try_from(&msg);
+                            info.insert(msg);
+                            if let Ok(source) = source {
+                                if let Some(msg) = info.get_event_mut(&source.event_id) {
+                                    msg.image_backend =
+                                        ImageBackend::Downloading(picker.private().clone());
+                                }
+                                spawn_insert_preview(
+                                    store.clone(),
+                                    room_id.clone(),
+                                    source,
+                                    client.media(),
+                                    settings.dirs.cache.clone(),
+                                )
+                            }
+                        } else {
+                            info.insert(msg);
+                        }
                     },
                     AnyMessageLikeEvent::Reaction(ev) => {
                         info.insert_reaction(ev);
@@ -782,8 +811,29 @@ impl ClientWorker {
                     let sender = ev.sender().to_owned();
                     let _ = locked.application.presences.get_or_default(sender);
 
-                    let info = locked.application.get_room_info(room_id.to_owned());
-                    info.insert(ev.into_full_event(room_id.to_owned()));
+                    let ChatStore { rooms, picker, settings, .. } = &mut locked.application;
+                    let info = rooms.get_or_default(room_id.to_owned());
+
+                    if let Some(picker) = picker {
+                        let full_ev = ev.into_full_event(room_id.to_owned());
+                        let source = PreviewSource::try_from(&full_ev);
+                        info.insert(full_ev);
+                        if let Ok(source) = source {
+                            if let Some(msg) = info.get_event_mut(&source.event_id) {
+                                msg.image_backend =
+                                    ImageBackend::Downloading(picker.private().clone());
+                            }
+                            spawn_insert_preview(
+                                store.clone(),
+                                room_id.to_owned(),
+                                source,
+                                client.media(),
+                                settings.dirs.cache.clone(),
+                            )
+                        };
+                    } else {
+                        info.insert(ev.into_full_event(room_id.to_owned()));
+                    }
                 }
             },
         );
