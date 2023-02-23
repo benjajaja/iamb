@@ -220,6 +220,14 @@ fn merge_users(a: Option<UserOverrides>, b: Option<UserOverrides>) -> Option<Use
     }
 }
 
+#[derive(Clone, Default, Deserialize)]
+pub struct ImagePreviewOverrides {
+    pub enabled: bool,
+    pub line_count: u16,
+    pub image_height: u16,
+    pub max_image_width: u16,
+}
+
 #[derive(Clone)]
 pub struct TunableValues {
     pub log_level: Level,
@@ -232,6 +240,7 @@ pub struct TunableValues {
     pub typing_notice_display: bool,
     pub users: UserOverrides,
     pub default_room: Option<String>,
+    pub image_preview: ImagePreviewOverrides,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -246,6 +255,7 @@ pub struct Tunables {
     pub typing_notice_display: Option<bool>,
     pub users: Option<UserOverrides>,
     pub default_room: Option<String>,
+    pub image_preview: Option<ImagePreviewOverrides>,
 }
 
 impl Tunables {
@@ -263,6 +273,7 @@ impl Tunables {
             typing_notice_display: self.typing_notice_display.or(other.typing_notice_display),
             users: merge_users(self.users, other.users),
             default_room: self.default_room.or(other.default_room),
+            image_preview: self.image_preview.or(other.image_preview),
         }
     }
 
@@ -278,6 +289,12 @@ impl Tunables {
             typing_notice_display: self.typing_notice_display.unwrap_or(true),
             users: self.users.unwrap_or_default(),
             default_room: self.default_room,
+            image_preview: self.image_preview.unwrap_or(ImagePreviewOverrides {
+                enabled: false,
+                line_count: 10,
+                image_height: 400,
+                max_image_width: 600,
+            }),
         }
     }
 }
@@ -287,6 +304,7 @@ pub struct DirectoryValues {
     pub cache: PathBuf,
     pub logs: PathBuf,
     pub downloads: PathBuf,
+    pub image_preview_cache: PathBuf,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -294,6 +312,7 @@ pub struct Directories {
     pub cache: Option<PathBuf>,
     pub logs: Option<PathBuf>,
     pub downloads: Option<PathBuf>,
+    pub image_preview_cache: Option<PathBuf>,
 }
 
 impl Directories {
@@ -302,6 +321,7 @@ impl Directories {
             cache: self.cache.or(other.cache),
             logs: self.logs.or(other.logs),
             downloads: self.downloads.or(other.downloads),
+            image_preview_cache: self.image_preview_cache.or(other.image_preview_cache),
         }
     }
 
@@ -326,7 +346,9 @@ impl Directories {
             .or_else(dirs::download_dir)
             .expect("no dirs.download value configured!");
 
-        DirectoryValues { cache, logs, downloads }
+        let image_preview_cache = self.image_preview_cache.unwrap_or(downloads.clone());
+
+        DirectoryValues { cache, logs, downloads, image_preview_cache }
     }
 }
 

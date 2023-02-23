@@ -52,9 +52,17 @@ features = ["e2e-encryption", "markdown", "sled", "rustls-tls"]
 version = "1.24.1"
 features = ["macros", "net", "rt-multi-thread", "sync", "time"]
 
+[dependencies.sixel-rs]
+version = "0.3.3"
+optional = true
+
 [dev-dependencies]
 lazy_static = "1.4.0"
 
 [profile.release]
 lto = true
 incremental = false
+
+[features]
+default = []
+sixel = ["sixel-rs"]

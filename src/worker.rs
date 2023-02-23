@@ -69,6 +69,9 @@ use matrix_sdk::{
 
 use modalkit::editing::action::{EditInfo, InfoMessage, UIError};
 
+#[cfg(feature = "sixel")]
+use crate::message::sixel;
+
 use crate::{
     base::{
         AsyncProgramStore,
@@ -715,6 +718,8 @@ impl ClientWorker {
              store: Ctx<AsyncProgramStore>| {
                 async move {
                     let room_id = room.room_id();
+                    let room_name = room.display_name().await.ok();
+                    let room_name = room_name.as_ref().map(ToString::to_string);
 
                     if let Some(msg) = ev.as_original() {
                         if let MessageType::VerificationRequest(_) = msg.content.msgtype {
@@ -733,8 +738,36 @@ impl ClientWorker {
                     let sender = ev.sender().to_owned();
                     let _ = locked.application.presences.get_or_default(sender);
 
-                    let info = locked.application.get_room_info(room_id.to_owned());
-                    info.insert(ev.into_full_event(room_id.to_owned()));
+                    let mut info = locked.application.get_room_info(room_id.to_owned());
+                    info.name = room_name.clone();
+                    let full_ev = ev.clone().into_full_event(room_id.to_owned());
+
+                    info.insert(full_ev);
+
+                    #[cfg(feature = "sixel")]
+                    if let Some((source, event_id)) = sixel::get_attachment_source(&ev) {
+                        match sixel::download(
+                            &locked.application.worker.client.media(),
+                            source,
+                            event_id,
+                            &locked.application.settings,
+                        )
+                        .await
+                        .and_then(sixel::load_file_from_path)
+                        .and_then(|image| {
+                            let info = locked.application.get_room_info(room_id.to_owned());
+                            let msg = info.get_event_mut(ev.event_id());
+                            return msg
+                                .ok_or(UIError::Failure(
+                                    "Could not retrieve message for image preview".to_string(),
+                                ))
+                                .map(|msg| (image, msg));
+                        }) {
+                            Ok((image, msg)) => msg.image = Some(image),
+                            // XXX: should display the download error to user.
+                            Err(err) => eprintln!("{err}"),
+                        }
+                    }
                 }
             },
         );

@@ -1283,7 +1283,8 @@ impl<'a> StatefulWidget for Scrollback<'a> {
                     continue;
                 }
 
-                lines.push((key, row, line));
+                let image = if row == 0 { &item.image } else { &None };
+                lines.push((key, row, line, image));
                 sawit |= sel;
             }
         }
@@ -1293,7 +1294,7 @@ impl<'a> StatefulWidget for Scrollback<'a> {
             let _ = lines.drain(..n);
         }
 
-        if let Some(((ts, event_id), row, _)) = lines.first() {
+        if let Some(((ts, event_id), row, _, _)) = lines.first() {
             state.viewctx.corner.timestamp = Some((*ts, event_id.clone()));
             state.viewctx.corner.text_row = *row;
         }
@@ -1301,8 +1302,15 @@ impl<'a> StatefulWidget for Scrollback<'a> {
         let mut y = area.top();
         let x = area.left();
 
-        for (_, _, txt) in lines.into_iter() {
+        for (_, _, txt, image) in lines.into_iter() {
             let _ = buf.set_spans(x, y, &txt, area.width);
+            if let Some(image) = image {
+                let line_count = self.store.application.settings.tunables.image_preview.line_count;
+                if y <= area.height - line_count {
+                    // XXX: use state to avoid redrawing every render?
+                    buf.get_mut(31, y).set_symbol(image);
+                }
+            }
 
             y += 1;
         }
