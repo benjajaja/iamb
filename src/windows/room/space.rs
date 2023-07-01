@@ -10,7 +10,7 @@ use modalkit::tui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    text::{Span, Spans, Text},
+    text::{Span, Line, Text},
     widgets::StatefulWidget,
 };
 
@@ -137,7 +137,7 @@ impl<'a> StatefulWidget for Space<'a> {
                 },
                 Err(e) => {
                     let lines = vec![
-                        Spans::from("Unable to fetch space room hierarchy:"),
+                        Line::from("Unable to fetch space room hierarchy:"),
                         Span::styled(e.to_string(), Style::default().fg(Color::Red)).into(),
                     ];
 
