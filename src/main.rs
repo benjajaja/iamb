@@ -243,7 +243,7 @@ impl Application {
         crossterm::execute!(stdout, SetTitle(title))?;
 
         let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+        let terminal = Terminal::new(backend)?;
 
         let bindings = crate::keybindings::setup_keybindings();
         let bindings = KeyManager::new(bindings);
@@ -251,11 +251,11 @@ impl Application {
         let mut locked = store.lock().await;
 
         if let Some(image_preview_settings) = &settings.tunables.image_preview {
-            let picker = Picker::new(
-                &mut terminal,
-                None,
+            // XXX: Switch to Picker::from_terminal
+            let picker = Picker::from_ioctl(
                 image_preview_settings.backend,
-                image_preview_settings.size.clone(),
+                None,
+                Some((&image_preview_settings.size).into()),
             )
             .unwrap();
             locked.application.picker = Some(picker);

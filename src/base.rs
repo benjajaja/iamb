@@ -79,7 +79,6 @@ use modalkit::{
     },
 };
 
-use crate::config::ImagePreviewSize;
 use crate::{
     message::{Message, MessageEvent, MessageKey, MessageTimeStamp, Messages},
     worker::Requester,
@@ -682,7 +681,7 @@ pub struct ChatStore {
     pub need_load: HashSet<OwnedRoomId>,
     pub emojis: CompletionMap<String, &'static Emoji>,
     pub sync_info: SyncInfo,
-    pub picker: Option<Picker<ImagePreviewSize>>,
+    pub picker: Option<Picker>,
 }
 
 impl ChatStore {

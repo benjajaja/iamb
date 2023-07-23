@@ -90,7 +90,7 @@ pub fn spawn_insert_preview(
             },
             Ok(img) => {
                 let mut locked = store.lock().await;
-                let ChatStore { rooms, picker, .. } = &mut locked.application;
+                let ChatStore { rooms, picker, settings, .. } = &mut locked.application;
 
                 match picker
                     .as_mut()
@@ -104,18 +104,15 @@ pub fn spawn_insert_preview(
                                 .ok_or_else(|| {
                                     IambError::Preview("Message not found".to_string())
                                 })?,
+                            settings.tunables.image_preview.clone().ok_or_else(|| {
+                                IambError::Preview("image_preview settings not found".to_string())
+                            })?,
                         ))
                     })
-                    .and_then(|(picker, msg)| {
-                        let size = picker.private();
-                        msg.image_backend = ImageBackend::Preparing(picker.private().clone());
+                    .and_then(|(picker, msg, image_preview)| {
+                        msg.image_backend = ImageBackend::Preparing(image_preview.size);
                         picker
-                            .new_static_fit(
-                                img,
-                                event_id.to_string().into(),
-                                Resize::Fit,
-                                size.into(),
-                            )
+                            .new_static_fit(img, event_id.to_string().into(), Resize::Fit)
                             .map_err(|err| IambError::Preview(format!("{err:?}")))
                             .map(|backend| (backend, msg))
                     }) {

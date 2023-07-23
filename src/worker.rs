@@ -252,13 +252,16 @@ async fn load_insert(room_id: OwnedRoomId, res: MessageFetchResult, store: Async
                         info.insert_encrypted(msg);
                     },
                     AnyMessageLikeEvent::RoomMessage(msg) => {
-                        if let Some(picker) = picker {
+                        if picker.is_some() {
                             let source = PreviewSource::try_from(&msg);
                             info.insert(msg);
                             if let Ok(source) = source {
-                                if let Some(msg) = info.get_event_mut(&source.event_id) {
+                                if let (Some(msg), Some(image_preview)) = (
+                                    info.get_event_mut(&source.event_id),
+                                    &settings.tunables.image_preview,
+                                ) {
                                     msg.image_backend =
-                                        ImageBackend::Downloading(picker.private().clone());
+                                        ImageBackend::Downloading(image_preview.size.clone());
                                 }
                                 spawn_insert_preview(
                                     store.clone(),
@@ -814,14 +817,17 @@ impl ClientWorker {
                     let ChatStore { rooms, picker, settings, .. } = &mut locked.application;
                     let info = rooms.get_or_default(room_id.to_owned());
 
-                    if let Some(picker) = picker {
+                    if picker.is_some() {
                         let full_ev = ev.into_full_event(room_id.to_owned());
                         let source = PreviewSource::try_from(&full_ev);
                         info.insert(full_ev);
                         if let Ok(source) = source {
-                            if let Some(msg) = info.get_event_mut(&source.event_id) {
+                            if let (Some(msg), Some(image_preview)) = (
+                                info.get_event_mut(&source.event_id),
+                                &settings.tunables.image_preview,
+                            ) {
                                 msg.image_backend =
-                                    ImageBackend::Downloading(picker.private().clone());
+                                    ImageBackend::Downloading(image_preview.size.clone());
                             }
                             spawn_insert_preview(
                                 store.clone(),
