@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use emojis::Emoji;
-use ratatui_image::picker::Picker;
 use serde::{
     de::Error as SerdeError,
     de::Visitor,
@@ -83,7 +82,7 @@ use modalkit::{
 };
 
 use crate::message::ImageBackend;
-use crate::preview::{spawn_insert_preview, source_from_event};
+use crate::preview::{source_from_event, Previewer};
 use crate::{
     message::{Message, MessageEvent, MessageKey, MessageTimeStamp, Messages},
     worker::Requester,
@@ -706,25 +705,22 @@ impl RoomInfo {
         }
     }
 
-    pub fn insert_with_preview(&mut self, room_id: OwnedRoomId, store: AsyncProgramStore, picker: Option<Picker>, ev: matrix_sdk::ruma::events::MessageLikeEvent<RoomMessageEventContent>, settings: &mut ApplicationSettings, media: matrix_sdk::Media) {
-        let source = picker.and_then(|_| source_from_event(&ev));
+    pub fn insert_with_preview(&mut self, room_id: OwnedRoomId, previewer: Option<&Previewer>, ev: matrix_sdk::ruma::events::MessageLikeEvent<RoomMessageEventContent>, settings: &mut ApplicationSettings) {
+        let preview = previewer.and_then(|previewer| {
+            source_from_event(&ev).map(|(e, s)| (previewer, e, s))
+        });
         self.insert(ev);
 
-        if let Some((event_id, source)) = source {
+        if let Some((previewer, event_id, source)) = preview {
             if let (Some(msg), Some(image_preview)) = (
                 self.get_event_mut(&event_id),
                 &settings.tunables.image_preview,
             ) {
                 msg.image_backend =
                     ImageBackend::Downloading(image_preview.size.clone());
-                spawn_insert_preview(
-                    store,
-                    room_id,
-                    event_id,
-                    source,
-                    media,
-                    settings.dirs.image_previews.clone(),
-                )
+                if let Err(err) = previewer.send(room_id, event_id, source) {
+                    todo!("{}", err)
+                }
             }
         }
     }
@@ -861,7 +857,9 @@ pub struct ChatStore {
 
     /// Information gathered by the background thread.
     pub sync_info: SyncInfo,
-    pub picker: Option<Picker>,
+
+    /// Image preview protocol picker.
+    pub previewer: Option<Previewer>,
 }
 
 impl ChatStore {
@@ -870,7 +868,6 @@ impl ChatStore {
         ChatStore {
             worker,
             settings,
-            picker: None,
             cmds: crate::commands::setup_commands(),
             emojis: emoji_map(),
 
@@ -880,6 +877,7 @@ impl ChatStore {
             verifications: Default::default(),
             need_load: Default::default(),
             sync_info: Default::default(),
+            previewer: None,
         }
     }
 

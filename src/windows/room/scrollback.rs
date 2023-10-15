@@ -1265,7 +1265,7 @@ impl<'a> StatefulWidget for Scrollback<'a> {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let info = self.store.application.rooms.get_or_default(state.room_id.clone());
         let settings = &self.store.application.settings;
-        let picker = &self.store.application.picker;
+        let previewer = &self.store.application.previewer;
         let area = if state.cursor.timestamp.is_some() {
             render_jump_to_recent(area, buf, self.focused)
         } else {
@@ -1309,7 +1309,7 @@ impl<'a> StatefulWidget for Scrollback<'a> {
             let sel = key == cursor_key;
             let txt = item.show(prev, foc && sel, &state.viewctx, info, settings);
 
-            let mut msg_preview = if picker.is_some() {
+            let mut msg_preview = if previewer.is_some() {
                 item.line_preview(prev, &state.viewctx, info)
             } else {
                 None

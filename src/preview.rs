@@ -20,13 +20,83 @@ use matrix_sdk::{
     Media,
 };
 use modalkit::tui::layout::Rect;
-use ratatui_image::Resize;
+use ratatui_image::{Resize, picker::Picker};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender, error::SendError};
 
 use crate::{
     base::{AsyncProgramStore, ChatStore, IambError},
-    config::ImagePreviewSize,
+    config::{ImagePreviewSize, ImagePreviewProtocolValues, ImagePreviewValues},
     message::ImageBackend,
 };
+
+pub struct Previewer {
+    pub picker: Picker,
+    tx: UnboundedSender<PreviewMessage>,
+}
+
+impl Previewer {
+    pub(crate) fn spawn(
+        image_preview: Option<ImagePreviewValues>,
+        cache_dir: PathBuf,
+        store: AsyncProgramStore,
+        media: Media,
+    ) -> Option<Previewer> {
+        if let Some(image_preview) = image_preview {
+            let picker = match image_preview.protocol.as_ref() {
+                Some(&ImagePreviewProtocolValues {
+                    r#type: Some(backend),
+                    font_size: Some(font_size),
+                }) => Some(Picker::new(font_size, backend, None).unwrap()),
+                #[cfg(not(target_os = "windows"))]
+                Some(&ImagePreviewProtocolValues {
+                    r#type: Some(backend),
+                    font_size: None,
+                }) => {
+                    let mut picker = Picker::from_termios(None).unwrap();
+                    picker.set(backend);
+                    Some(picker)
+                },
+                #[cfg(not(target_os = "windows"))]
+                _ => Some(Picker::from_termios(None).unwrap()),
+                #[cfg(target_os = "windows")]
+                _ => None,
+            };
+            let picker = match picker {
+                Some(picker) => picker,
+                None => {
+                    return None;
+                },
+            };
+
+            let (tx, mut rx) = unbounded_channel::<PreviewMessage>();
+
+            tokio::spawn(async move {
+                loop {
+                    if let Some(PreviewMessage(room_id, event_id, source)) = rx.recv().await {
+                        spawn_insert_preview(store.clone(), room_id, event_id, source, media.clone(), cache_dir.clone()).await;
+                    }
+                }
+            });
+
+            return Some(Previewer {
+                picker,tx
+            });
+        }
+        None
+    }
+
+    pub(crate) fn send(&self, room_id: OwnedRoomId, event_id: OwnedEventId, source: MediaSource) -> Result<(), SendError<PreviewMessage>>  {
+        self.tx.send(PreviewMessage(room_id, event_id, source))
+    }
+
+
+}
+
+pub struct PreviewMessage (
+    OwnedRoomId,
+    OwnedEventId,
+    MediaSource,
+);
 
 pub fn source_from_event(ev: &MessageLikeEvent<RoomMessageEventContent>) -> Option<(OwnedEventId, MediaSource)> {
     if let MessageLikeEvent::Original(ev) = &ev {
@@ -49,7 +119,7 @@ impl From<Rect> for ImagePreviewSize {
 }
 
 // Download and prepare the preview, and then lock the store to insert it.
-pub fn spawn_insert_preview(
+pub async fn spawn_insert_preview(
     store: AsyncProgramStore,
     room_id: OwnedRoomId,
     event_id: OwnedEventId,
@@ -57,7 +127,6 @@ pub fn spawn_insert_preview(
     media: Media,
     cache_dir: PathBuf,
 ) {
-    tokio::spawn(async move {
         let img = download_or_load(event_id.to_owned(), source, media, cache_dir)
             .await
             .map(std::io::Cursor::new)
@@ -77,9 +146,9 @@ pub fn spawn_insert_preview(
             },
             Ok(img) => {
                 let mut locked = store.lock().await;
-                let ChatStore { rooms, picker, settings, .. } = &mut locked.application;
+                let ChatStore { rooms, previewer, settings, .. } = &mut locked.application;
 
-                match picker
+                match previewer
                     .as_mut()
                     .ok_or_else(|| IambError::Preview("Picker is empty".to_string()))
                     .and_then(|picker| {
@@ -96,9 +165,10 @@ pub fn spawn_insert_preview(
                             })?,
                         ))
                     })
-                    .and_then(|(picker, msg, image_preview)| {
+                    .and_then(|(previewer, msg, image_preview)| {
                         msg.image_backend = ImageBackend::Preparing(image_preview.size.clone());
-                        picker
+                        previewer
+                            .picker
                             .new_static_fit(img, image_preview.size.into(), Resize::Fit)
                             .map_err(|err| IambError::Preview(format!("{err:?}")))
                             .map(|backend| (backend, msg))
@@ -112,7 +182,6 @@ pub fn spawn_insert_preview(
                 }
             },
         }
-    });
 }
 
 fn try_set_msg_preview_error(
