@@ -4,9 +4,12 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
-    fenix.url = "github:nix-community/fenix";
+    crane.url = "github:ipetkov/crane";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -58,14 +61,7 @@
 
           buildInputs = with pkgs; [
             openssl
-          ] ++ lib.optionals pkgs.stdenv.isDarwin (
-            with pkgs.darwin.apple_sdk.frameworks;
-            [
-              AppKit
-              Security
-              Cocoa
-            ]
-          );
+          ];
         };
 
         # Build *just* the cargo dependencies, so we can reuse

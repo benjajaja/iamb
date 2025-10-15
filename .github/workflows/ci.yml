@@ -48,7 +48,10 @@ jobs:
 
   nix-flake-test:
     name: Flake checks ❄️
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
